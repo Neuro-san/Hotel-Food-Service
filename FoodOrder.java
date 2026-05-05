@@ -13,15 +13,14 @@ public class FoodOrder {
 
     void deliver() {
         this.isDelivered = true;
-        System.out.println("Order 'int-iterable' delivered!");
+        System.out.println("Order for room " + this.targetRoom + " delivered!");
     }
 
     void printStatus() {
-        System.out.println("Room Order 'int-iterable'");
+        System.out.println("    Order for room " + this.targetRoom);
         System.out.println("Room: " + this.targetRoom);
         System.out.println("Floor: " + this.targetFloor);
         System.out.println("Time: " + this.timeLimit + "s");
         System.out.println("Order status: " + this.isDelivered);
-        System.out.println();
     }
 }

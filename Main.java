@@ -1,12 +1,16 @@
-public class Main {
-    public static void main(String[] args){
-        Waiter player = new Waiter(1);
-        FoodOrder order1 = new FoodOrder("305", 3, 50);
+import javax.swing.*;
 
-        player.printStatus();
-        player.pickUp(order1);
-        player.printStatus();
-        player.deliverOrder();
-        player.printStatus();
-    }
+public class Main {
+    public static void main(String[] args) {
+        JFrame frame = new JFrame("Hotel Food Service");
+        GamePanel gamePanel = new GamePanel();
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.add(gamePanel);
+        frame.pack();
+        frame.setVisible(true);
+        
+        
+    
+    }   
+    
 }
