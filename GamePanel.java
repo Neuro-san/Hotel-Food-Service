@@ -7,8 +7,9 @@ public class GamePanel extends JPanel {
     final int WIDTH = 800;
     final int HEIGHT = 600;
 
+    // player starting location
     int playerCol = 5;
-    int playerRow = 13; // player starting location
+    int playerRow = 13; 
 
     int tileSize = 40;
 
@@ -52,50 +53,33 @@ public class GamePanel extends JPanel {
             @Override
             public void keyPressed(KeyEvent e) {
                 int key = e.getKeyCode();   // which key was pressed?
-                int highestFloor = 2;
-                int lowestFloor = 12;
-
-                if (map[playerRow][playerCol] == 2) {
-                    if (key == KeyEvent.VK_UP) {
-                        if (playerRow != highestFloor) {
-                            playerRow -= 5;
-                        }
-                    }
-                }
-
-                if (map[playerRow][playerCol] == 2) {
-                    if (key == KeyEvent.VK_DOWN) {
-                        if (playerRow != lowestFloor) {
-                            playerRow += 5;
-                        }
-                    }
-                }
-
-
-                if (key == KeyEvent.VK_UP) {
-                    if (map[playerRow - 1][playerCol] != 1) {
-                        playerRow--;
-                    }
-                }
+                int highestFloor = 2;   // row 2
+                int lowestFloor = 12;   // row 12
+                int nextRow = playerRow;
+                int nextCol = playerCol;
                 
-
-                if (key == KeyEvent.VK_DOWN) {
-                    if (map[playerRow + 1][playerCol] != 1) {
-                        playerRow++;
+                // movement logic using arrow keys
+                if (key == KeyEvent.VK_UP) {
+                    // isInElevator?
+                    if (map[playerRow][playerCol] == 2 && playerRow != highestFloor) {
+                        nextRow -= 5;
+                    } else {
+                        nextRow--;
                     }
+                } else if (key == KeyEvent.VK_DOWN) {
+                    // isInElevator?
+                    if (map[playerRow][playerCol] == 2 && playerRow != lowestFloor) {
+                        nextRow += 5;
+                    } else {
+                        nextRow++;
+                    }
+                } else if (key == KeyEvent.VK_LEFT) nextCol--;
+                else if (key == KeyEvent.VK_RIGHT) nextCol++;
+
+                if (map[nextRow][nextCol] != 1) {
+                    playerRow = nextRow;
+                    playerCol = nextCol;
                 }
-
-                if (key == KeyEvent.VK_LEFT) {
-                    if (map[playerRow][playerCol - 1] != 1) {
-                        playerCol--;
-                    }
-                }
-
-                if (key == KeyEvent.VK_RIGHT) {
-                    if (map[playerRow][playerCol + 1] != 1) {
-                        playerCol++;
-                    }
-                }            
             }
         });
         setFocusable(true);
