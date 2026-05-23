@@ -5,6 +5,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Random;
 import java.util.Scanner;
 import javax.imageio.ImageIO;
@@ -104,7 +105,7 @@ public class GamePanel extends JPanel {
         {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},  // row 10  outer wall
         {1, 6, 6, 6, 8, 8, 2, 8, 3, 8, 8, 8, 8, 8, 1},  // row 11  kitchen(1-3), lounge
         {1, 6, 6, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 1},  // row 12  kitchen(1-3), corridor
-        {1, 6, 6, 6, 8, 8, 8, 7, 8, 8, 8, 8, 8, 8, 1},  // row 13  kitchen(1-3), exit(7), lounge
+        {1, 6, 6, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 1},  // row 13  kitchen(1-3), exit(7), lounge
         {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},  // row 14  outer wall
     };
 
@@ -127,8 +128,8 @@ public class GamePanel extends JPanel {
     // SPRITE ANIMATION
     // 011.png: 2 cols × 4 rows, 32x32 per frame
     // Row 0=DOWN | Row 1=LEFT | Row 2=RIGHT | Row 3=UP
-    static final int FRAME_W     = 32;
-    static final int FRAME_H     = 32;
+    static final int FRAME_W     = 443;  // waiter.png cell width  (887px / 2 cols)
+    static final int FRAME_H     = 420;  // waiter.png cell height — 1px trimmed to avoid hairline on RIGHT direction
     static final int DIR_DOWN    = 0;
     static final int DIR_LEFT    = 1;
     static final int DIR_RIGHT   = 2;
@@ -139,7 +140,15 @@ public class GamePanel extends JPanel {
 
     BufferedImage spriteSheet;
 
-    // Kitchen sprite sheet — sliced from assets/kitchen.png
+    // Door sprites — maps room label (e.g. "204") to its cropped BufferedImage
+    // Falls back to green/red tile if a label has no sprite loaded
+    HashMap<String, BufferedImage> doorSprites = new HashMap<>();
+
+    // Environment sprites
+    BufferedImage wallSprite;       // tile 1 — seamless dark wood
+    BufferedImage floorSprite;      // tile 0 — seamless marble
+    BufferedImage elevatorSprite;   // tile 3 — cropped from black-bordered image
+    BufferedImage escalatorSprite;  // tile 2 — cropped from black-bordered image
     // Source image content area: left=124, top=160, each cell=258x225px
     BufferedImage kitchenSheet;
     static final int KIT_SRC_X  = 124;   // content left edge in image
@@ -520,14 +529,48 @@ public class GamePanel extends JPanel {
     // ── Sprite loading ────────────────────────────────────────────────────────
     private void loadSprites() {
         try {
-            spriteSheet = makeTransparent(ImageIO.read(new File("assets/011.png")));
+            spriteSheet = makeTransparent(ImageIO.read(new File("assets/waiter.png")));
         } catch (Exception ex) {
             System.out.println("Player sprite not found — rectangle fallback active. " + ex.getMessage());
         }
         try {
             kitchenSheet = ImageIO.read(new File("assets/kitchen.png"));
         } catch (Exception ex) {
-            System.out.println("Kitchen sprite not found — solid colour fallback active. " + ex.getMessage());
+            System.out.println("Kitchen sprite not found: " + ex.getMessage());
+        }
+        try { wallSprite     = ImageIO.read(new File("assets/wood_walls.png"));  } catch (Exception ex) { System.out.println("wall sprite missing");     }
+        try { floorSprite    = ImageIO.read(new File("assets/marble_floors.png")); } catch (Exception ex) { System.out.println("floor sprite missing");    }
+        try { elevatorSprite  = ImageIO.read(new File("assets/elevator.png"));   } catch (Exception ex) { System.out.println("elevator sprite missing");  }
+        try { escalatorSprite = ImageIO.read(new File("assets/escalator.png"));  } catch (Exception ex) { System.out.println("escalator sprite missing"); }
+        loadDoorSprites();
+    }
+
+    // Loads every door sheet and slices each cell into doorSprites by room label
+    private void loadDoorSprites() {
+        // sheet path,  room labels in order,        srcX  srcY  cellW cellH
+        loadDoorSheet("assets/room_201-204.png",
+            new String[]{"201","202","203","204"},    266,  395,  250,  237);
+        loadDoorSheet("assets/room_205-208.png",
+            new String[]{"205","206","207","208"},    198,  326,  284,  305);
+        loadDoorSheet("assets/room_301-306.png",
+            new String[]{"301","302","303","304","305","306"}, 79, 411, 230, 211);
+        loadDoorSheet("assets/room_307.png",
+            new String[]{"307"},                      56,   36,  280,  303);
+        loadDoorSheet("assets/room_308-311.png",
+            new String[]{"308","309","310","311"},    267,  396,  250,  236);
+    }
+
+    // Slices one sheet into cells and stores each in doorSprites under its label
+    private void loadDoorSheet(String path, String[] labels,
+                                int srcX, int srcY, int cellW, int cellH) {
+        try {
+            BufferedImage sheet = ImageIO.read(new File(path));
+            for (int i = 0; i < labels.length; i++) {
+                BufferedImage cell = sheet.getSubimage(srcX + i * cellW, srcY, cellW, cellH);
+                doorSprites.put(labels[i], cell);
+            }
+        } catch (Exception ex) {
+            System.out.println("Could not load door sheet: " + path + " — " + ex.getMessage());
         }
     }
 
@@ -564,32 +607,62 @@ public class GamePanel extends JPanel {
         Graphics2D g2d = (Graphics2D) g;
         for (int row = 0; row < map.length; row++) {
             for (int col = 0; col < map[row].length; col++) {
-                int tx = col * tileSize;
-                int ty = row * tileSize;
+                int tx   = col * tileSize;
+                int ty   = row * tileSize;
+                int tile = map[row][col];
 
-                // Tile 6 (kitchen) — draw sprite sheet cell if loaded
-                if (map[row][col] == 6 && kitchenSheet != null) {
+                // Tile 0: marble floor (seamless — full image scaled to tile)
+                if (tile == 0 && floorSprite != null) {
+                    g2d.drawImage(floorSprite, tx, ty, tx + tileSize, ty + tileSize,
+                        0, 0, floorSprite.getWidth(), floorSprite.getHeight(), null);
+                    continue;
+                }
+                // Tile 1: outer wall — plain dark grey (no sprite)
+                // Tile 2: escalator (cropped from black-bordered image)
+                if (tile == 2 && escalatorSprite != null) {
+                    g2d.drawImage(escalatorSprite, tx, ty, tx + tileSize, ty + tileSize,
+                        576, 324, 576 + 386, 324 + 372, null);
+                    continue;
+                }
+                // Tile 3: elevator (cropped from black-bordered image)
+                if (tile == 3 && elevatorSprite != null) {
+                    g2d.drawImage(elevatorSprite, tx, ty, tx + tileSize, ty + tileSize,
+                        544, 294, 544 + 450, 294 + 393, null);
+                    continue;
+                }
+                // Tile 5: white separator — same wood wall sprite as outer walls
+                if (tile == 5 && wallSprite != null) {
+                    g2d.drawImage(wallSprite, tx, ty, tx + tileSize, ty + tileSize,
+                        0, 0, wallSprite.getWidth(), wallSprite.getHeight(), null);
+                    continue;
+                }
+                // Tile 8: lounge — same marble floor as corridor
+                if (tile == 8 && floorSprite != null) {
+                    g2d.drawImage(floorSprite, tx, ty, tx + tileSize, ty + tileSize,
+                        0, 0, floorSprite.getWidth(), floorSprite.getHeight(), null);
+                    continue;
+                }
+                // Tile 6: kitchen (sliced from 3x3 sheet)
+                if (tile == 6 && kitchenSheet != null) {
                     int kitRow = row - KIT_ROW;
                     int kitCol = col - KIT_COL;
                     int srcX   = KIT_SRC_X + kitCol * KIT_CELL_W;
                     int srcY   = KIT_SRC_Y + kitRow * KIT_CELL_H;
                     g2d.drawImage(kitchenSheet,
-                        tx,             ty,
-                        tx + tileSize,  ty + tileSize,
-                        srcX,           srcY,
-                        srcX + KIT_CELL_W, srcY + KIT_CELL_H,
-                        null);
+                        tx, ty, tx + tileSize, ty + tileSize,
+                        srcX, srcY, srcX + KIT_CELL_W, srcY + KIT_CELL_H, null);
                     continue;
                 }
 
-                switch (map[row][col]) {
+                // Colour fallback for all remaining / missing sprites
+                switch (tile) {
                     case 0: g.setColor(C_FLOOR);     break;
                     case 1: g.setColor(C_WALL);      break;
                     case 2: g.setColor(C_ESCALATOR); break;
                     case 3: g.setColor(C_ELEVATOR);  break;
                     case 4: g.setColor(C_ROOM);      break;
                     case 5: g.setColor(C_SEPARATOR); break;
-                    case 6: g.setColor(C_KITCHEN);   break;  // fallback if no sprite
+                    case 6: g.setColor(C_KITCHEN);   break;
                     case 7: g.setColor(C_EXIT);      break;
                     case 8: g.setColor(C_LOUNGE);    break;
                     default: g.setColor(Color.MAGENTA); break;
@@ -598,53 +671,69 @@ public class GamePanel extends JPanel {
             }
         }
 
-        // ROOM TILES — drawn from map scan, not hardcoded positions
+        // ROOM TILES — door sprite if loaded, green/red rectangle as fallback
         g.setFont(new Font("Arial", Font.BOLD, 10));
         for (int i = 0; i < roomPositions.size(); i++) {
-            int rRow = roomPositions.get(i)[0];
-            int rCol = roomPositions.get(i)[1];
+            int rRow  = roomPositions.get(i)[0];
+            int rCol  = roomPositions.get(i)[1];
+            int tx    = rCol * tileSize;
+            int ty    = rRow * tileSize;
+            String label = roomLabels.get(i);
 
             boolean isTarget = false;
             for (int[] pos : orderPositions) {
                 if (pos[0] == rRow && pos[1] == rCol) { isTarget = true; break; }
             }
 
-            if (isTarget) {
-                g.setColor(C_ROOM_RED);
-                g.fillRect(rCol * tileSize, rRow * tileSize, tileSize, tileSize);
-            }
+            BufferedImage door = doorSprites.get(label);
 
-            g.setColor(Color.BLACK);
-            String label = roomLabels.get(i);
-            FontMetrics fm = g.getFontMetrics();
-            int tx = (rCol * tileSize) + (tileSize - fm.stringWidth(label)) / 2;
-            int ty = (rRow * tileSize) + ((tileSize - fm.getHeight()) / 2) + fm.getAscent();
-            g.drawString(label, tx, ty);
-        }
+            if (door != null) {
+                // Draw the door sprite scaled to tile size
+                g2d.drawImage(door, tx, ty, tx + tileSize, ty + tileSize,
+                    0, 0, door.getWidth(), door.getHeight(), null);
 
-        // TRANSPORT LABELS
-        g.setFont(new Font("Arial", Font.BOLD, 8));
-        for (int row = 0; row < map.length; row++) {
-            for (int col = 0; col < map[row].length; col++) {
-                if (map[row][col] == 2) {
-                    g.setColor(Color.WHITE);
-                    g.drawString("ESC", col * tileSize + 4, row * tileSize + 14);
-                    g.drawString("↑",   col * tileSize + 11, row * tileSize + 28);
-                } else if (map[row][col] == 3) {
-                    g.setColor(Color.BLACK);
-                    g.drawString("ELV", col * tileSize + 4, row * tileSize + 14);
-                    g.drawString("↕",   col * tileSize + 11, row * tileSize + 28);
+                // Red semi-transparent overlay for active delivery targets
+                if (isTarget) {
+                    g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+                    g2d.setColor(Color.RED);
+                    g2d.fillRect(tx, ty, tileSize, tileSize);
+                    g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
                 }
+            } else {
+                // Fallback — plain green or red tile with label
+                g.setColor(isTarget ? C_ROOM_RED : C_ROOM);
+                g.fillRect(tx, ty, tileSize, tileSize);
+                g.setColor(Color.BLACK);
+                FontMetrics fm = g.getFontMetrics();
+                int lx = tx + (tileSize - fm.stringWidth(label)) / 2;
+                int ly = ty + ((tileSize - fm.getHeight()) / 2) + fm.getAscent();
+                g.drawString(label, lx, ly);
             }
         }
+
+        // // TRANSPORT LABELS
+        // g.setFont(new Font("Arial", Font.BOLD, 8));
+        // for (int row = 0; row < map.length; row++) {
+        //     for (int col = 0; col < map[row].length; col++) {
+        //         if (map[row][col] == 2) {
+        //             g.setColor(Color.WHITE);
+        //             g.drawString("ESC", col * tileSize + 4, row * tileSize + 14);
+        //             g.drawString("↑",   col * tileSize + 11, row * tileSize + 28);
+        //         } else if (map[row][col] == 3) {
+        //             g.setColor(Color.BLACK);
+        //             g.drawString("ELV", col * tileSize + 4, row * tileSize + 14);
+        //             g.drawString("↕",   col * tileSize + 11, row * tileSize + 28);
+        //         }
+        //     }
+        // }
 
         // FLOOR 1 ZONE LABELS
-        g.setFont(new Font("Arial", Font.BOLD, 9));
-        g.setColor(Color.WHITE);
-        g.drawString("KITCHEN", 1 * tileSize + 2,  12 * tileSize + 20);
-        g.drawString("EXIT",    7 * tileSize + 6,  13 * tileSize + 24);
-        g.setColor(Color.GRAY);
-        g.drawString("LOUNGE", 10 * tileSize,      12 * tileSize + 20);
+        // g.setFont(new Font("Arial", Font.BOLD, 9));
+        // g.setColor(Color.WHITE);
+        // g.drawString("KITCHEN", 1 * tileSize + 2,  12 * tileSize + 20);
+        // g.drawString("EXIT",    7 * tileSize + 6,  13 * tileSize + 24);
+        // g.setColor(Color.GRAY);
+        // g.drawString("LOUNGE", 10 * tileSize,      12 * tileSize + 20);
 
         // PLAYER
         drawPlayer(g);
