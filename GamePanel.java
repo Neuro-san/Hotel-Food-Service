@@ -9,7 +9,6 @@ import java.util.HashMap;
 import java.util.Random;
 import java.util.Scanner;
 import javax.imageio.ImageIO;
-import javax.sound.sampled.*;
 import javax.swing.*;
 
 public class GamePanel extends JPanel {
@@ -20,45 +19,31 @@ public class GamePanel extends JPanel {
     final int gapBetweenFloors = 2;
 
     // GAME STATE
-    // States: "MENU" → "PLAYING" → "GAME_OVER" → "MENU"
-    //         "MENU" → "HOW_TO_PLAY" → "MENU"
     String gameState = "MENU";
 
     // MENU
     static final String[] MENU_BUTTONS = { "Play", "How to Play", "Quit" };
-    int selectedButton = 0;   // 0=Play  1=How To Play  2=Quit
+    int selectedButton = 0;
 
-    // HI-SCORE — loaded from hiscore.txt, saved on game over
+    // HI-SCORE
     int highScore = 0;
 
     // SCORE
     int score = 0;
 
-    // DISSATISFACTION BAR — 5 starts full, game over at 0, no way to restore
+    // DISSATISFACTION BAR
     int dissatisfaction = 5;
     static final int MAX_DISSATISFACTION = 5;
 
-    // DIFFICULTY — starts at 1 order, grows by 1 every milestone
+    // DIFFICULTY
     int activeOrderCount = 1;
 
-    // ACTIVE ORDERS — orderTimers is parallel to orderList/orderPositions
+    // ACTIVE ORDERS
     ArrayList<int[]>     orderPositions = new ArrayList<>();
     ArrayList<FoodOrder> orderList      = new ArrayList<>();
-    ArrayList<Integer>   orderTimers    = new ArrayList<>();  // frames remaining per order
+    ArrayList<Integer>   orderTimers    = new ArrayList<>();
 
     Random rand = new Random();
-
-    // ── TILE TYPES ────────────────────────────────────────────────────────────
-    // 0 = walkable floor       (black)
-    // 1 = outer wall           (dark gray,  impassable)
-    // 2 = escalator            (blue,       UP only,  40 frames/row)
-    // 3 = elevator             (yellow,     both directions, 20 frames/row)
-    // 4 = green room           (green,      delivery target, top/bottom entry only)
-    // 5 = white wall separator (white,      impassable — blocks horizontal room entry)
-    // 6 = kitchen              (gray,       impassable)
-    // 7 = exit                 (brown,      decorative, walkable)
-    // 8 = lounge               (black,      walkable)
-    // ─────────────────────────────────────────────────────────────────────────
 
     // Tile colors
     static final Color C_FLOOR     = Color.BLACK;
@@ -69,101 +54,57 @@ public class GamePanel extends JPanel {
     static final Color C_ROOM_RED  = Color.RED;
     static final Color C_SEPARATOR = Color.WHITE;
     static final Color C_KITCHEN   = Color.GRAY;
-    static final Color C_EXIT      = new Color(139, 90, 43);  // brown
+    static final Color C_EXIT      = new Color(139, 90, 43);
     static final Color C_LOUNGE    = Color.BLACK;
 
-    // ROOM POSITIONS — built dynamically by scanning map for tile 4
-    // Adding or removing tile 4 from the map automatically updates rooms and labels
-    ArrayList<int[]>  roomPositions = new ArrayList<>();
-    ArrayList<String> roomLabels   = new ArrayList<>();
+    // Mission 2: single list replaces roomPositions + roomLabels
+    ArrayList<Room> rooms = new ArrayList<>();
 
-    // MAP (15 cols × 15 rows)
-    //
-    // Room row    : { 1, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 1 }
-    //   Rooms at odd cols (1,3,5,7,9,11,13)
-    //   White wall separators at even cols (2,4,6,8,10,12)
-    //
-    // Corridor    : { 1, 0, 0, 0, 0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 1 }
-    //   Escalator (2) at col 5, Elevator (3) at col 7
     int[][] map = {
-
-        // ── FLOOR 3 ──────────────────────────────────────────────────────────
-        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},  // row  0  outer wall
-        {1, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 1},  // row  1  rooms
-        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},  // row  2  corridor
-        {1, 5, 4, 5, 4, 5, 2, 5, 3, 5, 4, 5, 4, 5, 1},  // row  3  rooms
-        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},  // row  4  outer wall
-
-        // ── FLOOR 2 ──────────────────────────────────────────────────────────
-        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},  // row  5  outer wall
-        {1, 5, 4, 5, 4, 5, 2, 5, 3, 5, 4, 5, 4, 5, 1},  // row  6  rooms
-        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},  // row  7  corridor
-        {1, 5, 4, 5, 4, 5, 2, 5, 3, 5, 4, 5, 4, 5, 1},  // row  8  rooms
-        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},  // row  9  outer wall
-
-        // ── FLOOR 1 ──────────────────────────────────────────────────────────
-        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},  // row 10  outer wall
-        {1, 6, 6, 6, 8, 8, 2, 8, 3, 8, 8, 8, 8, 8, 1},  // row 11  kitchen(1-3), lounge
-        {1, 6, 6, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 1},  // row 12  kitchen(1-3), corridor
-        {1, 6, 6, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 1},  // row 13  kitchen(1-3), exit(7), lounge
-        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},  // row 14  outer wall
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {1, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 5, 4, 5, 4, 5, 2, 5, 3, 5, 4, 5, 4, 5, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {1, 5, 4, 5, 4, 5, 2, 5, 3, 5, 4, 5, 4, 5, 1},
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
+        {1, 5, 4, 5, 4, 5, 2, 5, 3, 5, 4, 5, 4, 5, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+        {1, 6, 6, 6, 8, 8, 2, 8, 3, 8, 8, 8, 8, 8, 1},
+        {1, 6, 6, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 1},
+        {1, 6, 6, 6, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 1},
+        {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
     };
 
-    // PLAYER — starts in floor 1 corridor, right of elevator
-    int playerCol = 9;
-    int playerRow = 12;
+    // Map-level transport constants (floor rows)
+    final int HIGHEST_FLOOR = 2;
+    final int LOWEST_FLOOR  = 12;
 
-    // TRANSPORT
-    static final int ESCALATOR_SPEED = 40;  // frames per row (UP only)
-    static final int ELEVATOR_SPEED  = 20;  // frames per row (both directions)
-    final int HIGHEST_FLOOR = 2;            // corridor row of floor 3
-    final int LOWEST_FLOOR  = 12;           // corridor row of floor 1
-
-    boolean isRiding              = false;
-    int     elevatorDirection     = 0;
-    int     elevatorTarget        = 0;
-    int     elevatorFrameCounter  = 0;
-    int     currentTransportSpeed = ELEVATOR_SPEED;
-
-    // SPRITE ANIMATION
-    // 011.png: 2 cols × 4 rows, 32x32 per frame
-    // Row 0=DOWN | Row 1=LEFT | Row 2=RIGHT | Row 3=UP
-    static final int FRAME_W     = 443;  // waiter.png cell width  (887px / 2 cols)
-    static final int FRAME_H     = 420;  // waiter.png cell height — 1px trimmed to avoid hairline on RIGHT direction
-    static final int DIR_DOWN    = 0;
-    static final int DIR_LEFT    = 1;
-    static final int DIR_RIGHT   = 2;
-    static final int DIR_UP      = 3;
-    static final int WALK_FRAMES = 2;
-    static final int IDLE_FRAMES = 1;
-    static final int ANIM_SPEED  = 8;
-
-    BufferedImage spriteSheet;
-
-    // Door sprites — maps room label (e.g. "204") to its cropped BufferedImage
-    // Falls back to green/red tile if a label has no sprite loaded
+    // Door sprites
     HashMap<String, BufferedImage> doorSprites = new HashMap<>();
 
     // Environment sprites
-    BufferedImage wallSprite;       // tile 1 — seamless dark wood
-    BufferedImage floorSprite;      // tile 0 — seamless marble
-    BufferedImage elevatorSprite;   // tile 3 — cropped from black-bordered image
-    BufferedImage escalatorSprite;  // tile 2 — cropped from black-bordered image
-    // Source image content area: left=124, top=160, each cell=258x225px
+    BufferedImage wallSprite;
+    BufferedImage floorSprite;
+    BufferedImage elevatorSprite;
+    BufferedImage escalatorSprite;
     BufferedImage kitchenSheet;
-    static final int KIT_SRC_X  = 124;   // content left edge in image
-    static final int KIT_SRC_Y  = 160;   // content top edge in image
-    static final int KIT_CELL_W = 258;   // width of one cell in image
-    static final int KIT_CELL_H = 225;   // height of one cell in image
-    static final int KIT_ROW    = 11;    // map row where kitchen starts
-    static final int KIT_COL    = 1;     // map col where kitchen starts
+    static final int KIT_SRC_X  = 124;
+    static final int KIT_SRC_Y  = 160;
+    static final int KIT_CELL_W = 258;
+    static final int KIT_CELL_H = 225;
+    static final int KIT_ROW    = 11;
+    static final int KIT_COL    = 1;
 
-    int     playerDirection = DIR_DOWN;
-    boolean isMoving        = false;
-    int     animFrame       = 0;
-    int     animTick        = 0;
+    // Mission 1: Waiter owns all player state
+    Waiter waiter = new Waiter(12, 9);
 
-    // ─────────────────────────────────────────────────────────────────────────
+    // Mission 3: centralised sound
+    SoundManager sound = new SoundManager();
+
+    // -------------------------------------------------------------------------
 
     GamePanel() {
         this.setPreferredSize(new Dimension(WIDTH, HEIGHT));
@@ -171,7 +112,6 @@ public class GamePanel extends JPanel {
         loadSprites();
         loadHighScore();
         buildRoomData();
-        // generateOrders() is NOT called here — called by startGame() when Play is pressed
 
         Thread gameLoop = new Thread(() -> {
             while (true) {
@@ -189,97 +129,89 @@ public class GamePanel extends JPanel {
             public void keyPressed(KeyEvent e) {
                 int key = e.getKeyCode();
 
-                // ── MENU ─────────────────────────────────────────────────────
                 if (gameState.equals("MENU")) {
                     if (key == KeyEvent.VK_UP) {
-                        selectedButton = (selectedButton - 1 + MENU_BUTTONS.length)
-                                         % MENU_BUTTONS.length;
+                        selectedButton = (selectedButton - 1 + MENU_BUTTONS.length) % MENU_BUTTONS.length;
                     } else if (key == KeyEvent.VK_DOWN) {
                         selectedButton = (selectedButton + 1) % MENU_BUTTONS.length;
                     } else if (key == KeyEvent.VK_ENTER) {
                         switch (selectedButton) {
-                            case 0 -> startGame();// Play
-                            case 1 -> gameState = "HOW_TO_PLAY";  // How To Play
-                            case 2 -> System.exit(0);  // Quit
+                            case 0 -> startGame();
+                            case 1 -> gameState = "HOW_TO_PLAY";
+                            case 2 -> System.exit(0);
                         }
                     }
                     return;
                 }
 
-                // ── HOW TO PLAY ───────────────────────────────────────────────
                 if (gameState.equals("HOW_TO_PLAY")) {
-                    if (key == KeyEvent.VK_ENTER || key == KeyEvent.VK_ESCAPE) {
-                        gameState = "MENU";
-                    }
+                    if (key == KeyEvent.VK_ENTER || key == KeyEvent.VK_ESCAPE) gameState = "MENU";
                     return;
                 }
 
-                // ── GAME OVER ─────────────────────────────────────────────────
                 if (gameState.equals("GAME_OVER")) {
                     if (key == KeyEvent.VK_ENTER) gameState = "MENU";
                     return;
                 }
 
-                if (isRiding) return;
+                // Mission 1: guard via waiter field
+                if (waiter.isRiding) return;
 
-                int nextRow     = playerRow;
-                int nextCol     = playerCol;
-                int currentTile = map[playerRow][playerCol];
+                int nextRow     = waiter.row;
+                int nextCol     = waiter.col;
+                int currentTile = map[waiter.row][waiter.col];
 
-                // ── ESCALATOR (tile 2) — UP only ─────────────────────────────
-                if (currentTile == 2 && key == KeyEvent.VK_UP 
-                        && playerRow != HIGHEST_FLOOR) {
-                    playerDirection       = DIR_UP;
-                    isRiding              = true;
-                    elevatorDirection     = -1;
-                    elevatorTarget        = playerRow - (gapBetweenFloors + 1 + 1);     // calculation: gapBetweenFloors + escalatorTileUp + escalatorTileBottom
-                    elevatorFrameCounter  = 0;
-                    currentTransportSpeed = ESCALATOR_SPEED;
-                    isMoving              = true;
+                // ESCALATOR (tile 2) — UP only
+                if (currentTile == 2 && key == KeyEvent.VK_UP && waiter.row != HIGHEST_FLOOR) {
+                    waiter.direction             = Waiter.DIR_UP;
+                    waiter.isRiding              = true;
+                    waiter.elevatorDirection     = -1;
+                    waiter.elevatorTarget        = waiter.row - (gapBetweenFloors + 1 + 1);
+                    waiter.elevatorFrameCounter  = 0;
+                    waiter.currentTransportSpeed = Waiter.ESCALATOR_SPEED;
+                    waiter.isMoving              = true;
                     return;
                 }
 
-                // ── ELEVATOR (tile 3) — both directions ──────────────────────
+                // ELEVATOR (tile 3) — both directions
                 if (currentTile == 3) {
-                    if (key == KeyEvent.VK_UP && playerRow != HIGHEST_FLOOR) {
-                        playerDirection       = DIR_UP;
-                        isRiding              = true;
-                        elevatorDirection     = -1;
-                        elevatorTarget        = playerRow - (gapBetweenFloors + 1 + 1);     // calculation: gapBetweenFloors - elevatorTileUp - elevatorTileBottom;
-                        elevatorFrameCounter  = 0;
-                        currentTransportSpeed = ELEVATOR_SPEED;
-                        isMoving              = true;
+                    if (key == KeyEvent.VK_UP && waiter.row != HIGHEST_FLOOR) {
+                        waiter.direction             = Waiter.DIR_UP;
+                        waiter.isRiding              = true;
+                        waiter.elevatorDirection     = -1;
+                        waiter.elevatorTarget        = waiter.row - (gapBetweenFloors + 1 + 1);
+                        waiter.elevatorFrameCounter  = 0;
+                        waiter.currentTransportSpeed = Waiter.ELEVATOR_SPEED;
+                        waiter.isMoving              = true;
                         return;
                     }
-                    if (key == KeyEvent.VK_DOWN && playerRow != LOWEST_FLOOR) {
-                        playerDirection       = DIR_DOWN;
-                        isRiding              = true;
-                        elevatorDirection     = 1;
-                        elevatorTarget        = playerRow + (gapBetweenFloors + 1 + 1);     // calculation: gapBetweenFloors - elevatorTileUp - elevatorTileBottom;
-                        elevatorFrameCounter  = 0;
-                        currentTransportSpeed = ELEVATOR_SPEED;
-                        isMoving              = true;
+                    if (key == KeyEvent.VK_DOWN && waiter.row != LOWEST_FLOOR) {
+                        waiter.direction             = Waiter.DIR_DOWN;
+                        waiter.isRiding              = true;
+                        waiter.elevatorDirection     = 1;
+                        waiter.elevatorTarget        = waiter.row + (gapBetweenFloors + 1 + 1);
+                        waiter.elevatorFrameCounter  = 0;
+                        waiter.currentTransportSpeed = Waiter.ELEVATOR_SPEED;
+                        waiter.isMoving              = true;
                         return;
                     }
                 }
 
-                // ── NORMAL MOVEMENT ───────────────────────────────────────────
-                if      (key == KeyEvent.VK_UP)    { nextRow--; playerDirection = DIR_UP;    }
-                else if (key == KeyEvent.VK_DOWN)  { nextRow++; playerDirection = DIR_DOWN;  }
-                else if (key == KeyEvent.VK_LEFT)  { nextCol--; playerDirection = DIR_LEFT;  }
-                else if (key == KeyEvent.VK_RIGHT) { nextCol++; playerDirection = DIR_RIGHT; }
+                // NORMAL MOVEMENT
+                if      (key == KeyEvent.VK_UP)    { nextRow--; waiter.direction = Waiter.DIR_UP;    }
+                else if (key == KeyEvent.VK_DOWN)  { nextRow++; waiter.direction = Waiter.DIR_DOWN;  }
+                else if (key == KeyEvent.VK_LEFT)  { nextCol--; waiter.direction = Waiter.DIR_LEFT;  }
+                else if (key == KeyEvent.VK_RIGHT) { nextCol++; waiter.direction = Waiter.DIR_RIGHT; }
 
                 int targetTile = map[nextRow][nextCol];
-                boolean passable = targetTile != 1   // outer wall
-                                && targetTile != 5   // white room separator
-                                && targetTile != 6;  // kitchen
+                boolean passable = targetTile != 1 && targetTile != 5 && targetTile != 6;
 
                 if (passable) {
-                    playerRow = nextRow;
-                    playerCol = nextCol;
-                    isMoving  = true;
+                    waiter.row      = nextRow;
+                    waiter.col      = nextCol;
+                    waiter.isMoving = true;
                 } else {
-                    isMoving = false;
+                    waiter.isMoving = false;
                 }
             }
 
@@ -288,9 +220,9 @@ public class GamePanel extends JPanel {
                 int key = e.getKeyCode();
                 if (key == KeyEvent.VK_UP   || key == KeyEvent.VK_DOWN ||
                     key == KeyEvent.VK_LEFT || key == KeyEvent.VK_RIGHT) {
-                    isMoving  = false;
-                    animFrame = 0;
-                    animTick  = 0;
+                    waiter.isMoving  = false;
+                    waiter.animFrame = 0;
+                    waiter.animTick  = 0;
                 }
             }
         });
@@ -300,30 +232,14 @@ public class GamePanel extends JPanel {
     public void update() {
         if (!gameState.equals("PLAYING")) return;
 
-        // TRANSPORT (escalator or elevator)
-        if (isRiding) {
-            elevatorFrameCounter++;
-            if (elevatorFrameCounter >= currentTransportSpeed) {
-                playerRow += elevatorDirection;
-                elevatorFrameCounter = 0;
-                if (playerRow == elevatorTarget) {
-                    isRiding = false;
-                    isMoving = false;
-                }
-            }
-            advanceAnimation(WALK_FRAMES);
-            return;
-        }
+        // Mission 1: transport + animation fully inside Waiter
+        waiter.update();
 
-        // ANIMATION
-        advanceAnimation(isMoving ? WALK_FRAMES : IDLE_FRAMES);
-
-        // PER-ORDER DISSATISFACTION TIMERS — tick each order down independently
+        // PER-ORDER TIMERS
         for (int i = orderTimers.size() - 1; i >= 0; i--) {
             orderTimers.set(i, orderTimers.get(i) - 1);
 
             if (orderTimers.get(i) <= 0) {
-                // Order expired — remove it, lose 1 bar, replace with fresh order
                 orderPositions.remove(i);
                 orderList.remove(i);
                 orderTimers.remove(i);
@@ -332,83 +248,52 @@ public class GamePanel extends JPanel {
                 if (dissatisfaction <= 0) {
                     saveHighScore();
                     gameState = "GAME_OVER";
-
-                   try {
-                        File audioFile = new File("assets/game_over.wav");
-                        AudioInputStream audioStream = AudioSystem.getAudioInputStream(audioFile);
-                        Clip clip = AudioSystem.getClip();
-                        clip.open(audioStream);
-                        clip.start();
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
+                    sound.playGameOver();  // Mission 3
                     return;
                 }
 
-                addNewOrder();  // immediately replace the expired order
-                try {
-                    File audioFile = new File("assets/order_expiry.wav");
-                    AudioInputStream audioStream = AudioSystem.getAudioInputStream(audioFile);
-                    Clip clip = AudioSystem.getClip();
-                    clip.open(audioStream);
-                    clip.start();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-                
+                addNewOrder();
+                sound.playOrderExpiry();  // Mission 3
             }
         }
 
-        // DELIVERY CHECK — scan all active orders backwards
+        // DELIVERY CHECK
         for (int i = orderPositions.size() - 1; i >= 0; i--) {
             int[] pos = orderPositions.get(i);
-            if (playerRow == pos[0] && playerCol == pos[1]) {
+            // Mission 1: waiter.row / waiter.col
+            if (waiter.row == pos[0] && waiter.col == pos[1]) {
                 orderList.get(i).deliver();
                 orderPositions.remove(i);
                 orderList.remove(i);
                 orderTimers.remove(i);
                 score++;
-                try {
-                    File audioFile = new File("assets/delivery_success.wav");
-                    AudioInputStream audioStream = AudioSystem.getAudioInputStream(audioFile);
-                    Clip clip = AudioSystem.getClip();
-                    clip.open(audioStream);
-                    clip.start();
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+                sound.playDeliverySuccess();  // Mission 3
             }
         }
 
-        // BATCH CLEARED — milestone check then generate next batch
+        // BATCH CLEARED
         if (orderPositions.isEmpty()) {
-            if (score > 0 && score % 5 == 0) {
-                activeOrderCount++;
-            }
+            if (score > 0 && score % 5 == 0) activeOrderCount++;
             generateOrders();
         }
     }
 
     // ── buildRoomData ─────────────────────────────────────────────────────────
-    // Floor 3 (rows 0-4): 301, 302, 303...
-    // Floor 2 (rows 5-9): 201, 202, 203...
+    // Mission 2: builds Room objects instead of two parallel lists
     private void buildRoomData() {
-        roomPositions.clear();
-        roomLabels.clear();
-
+        rooms.clear();
         int floor3Count = 0;
         int floor2Count = 0;
 
         for (int row = 0; row < map.length; row++) {
             for (int col = 0; col < map[row].length; col++) {
                 if (map[row][col] == 4) {
-                    roomPositions.add(new int[]{row, col});
                     if (row < 5) {
                         floor3Count++;
-                        roomLabels.add(String.format("3%02d", floor3Count));
+                        rooms.add(new Room(String.format("3%02d", floor3Count), 3, row, col));
                     } else if (row < 10) {
                         floor2Count++;
-                        roomLabels.add(String.format("2%02d", floor2Count));
+                        rooms.add(new Room(String.format("2%02d", floor2Count), 2, row, col));
                     }
                 }
             }
@@ -424,81 +309,58 @@ public class GamePanel extends JPanel {
         ArrayList<Integer> usedIndices = new ArrayList<>();
 
         for (int n = 0; n < activeOrderCount; n++) {
-            int   pick;
-            int[] pos;
+            int  pick;
+            Room r;
             do {
-                pick = rand.nextInt(roomPositions.size());
-                pos  = roomPositions.get(pick);
+                pick = rand.nextInt(rooms.size());
+                r    = rooms.get(pick);
             } while (
                 usedIndices.contains(pick) ||
-                (pos[0] == playerRow && pos[1] == playerCol)
+                (r.row == waiter.row && r.col == waiter.col)
             );
 
             usedIndices.add(pick);
-            orderPositions.add(new int[]{pos[0], pos[1]});
-
-            int floor = (pos[0] < 5) ? 3 : 2;
-            orderList.add(new FoodOrder(roomLabels.get(pick), floor, 0));
+            orderPositions.add(new int[]{r.row, r.col});
+            orderList.add(new FoodOrder(r.number, r.floor, 0));
             orderTimers.add(randomOrderTimer());
         }
     }
 
     // ── addNewOrder ───────────────────────────────────────────────────────────
-    // Adds one replacement order, avoiding all currently active positions
-    // and the player's current tile.
     private void addNewOrder() {
-        int   pick;
-        int[] pos;
+        int  pick;
+        Room r;
         do {
-            pick = rand.nextInt(roomPositions.size());
-            pos  = roomPositions.get(pick);
-        } while (isPositionTaken(pos[0], pos[1]));
+            pick = rand.nextInt(rooms.size());
+            r    = rooms.get(pick);
+        } while (isPositionTaken(r.row, r.col));
 
-        orderPositions.add(new int[]{pos[0], pos[1]});
-        int floor = (pos[0] < 5) ? 3 : 2;
-        orderList.add(new FoodOrder(roomLabels.get(pick), floor, 0));
+        orderPositions.add(new int[]{r.row, r.col});
+        orderList.add(new FoodOrder(r.number, r.floor, 0));
         orderTimers.add(randomOrderTimer());
     }
 
-    // Returns a random frame count between 5 and 10 seconds (300–600 frames at 60fps)
     private int randomOrderTimer() {
         return rand.nextInt(301) + 300;
     }
 
-    // Returns true if the given tile is already an active order target or the player's tile
     private boolean isPositionTaken(int row, int col) {
-        if (row == playerRow && col == playerCol) return true;
+        if (row == waiter.row && col == waiter.col) return true;
         for (int[] pos : orderPositions) {
             if (pos[0] == row && pos[1] == col) return true;
         }
         return false;
     }
 
-    // ── advanceAnimation ──────────────────────────────────────────────────────
-    private void advanceAnimation(int totalFrames) {
-        animTick++;
-        if (animTick >= ANIM_SPEED) {
-            animTick  = 0;
-            animFrame = (animFrame + 1) % totalFrames;
-        }
-    }
-
     // ── startGame ─────────────────────────────────────────────────────────────
-    // Called when Play is selected from the menu — resets everything fresh.
     private void startGame() {
-        playerRow            = 12;
-        playerCol            = 9;
-        playerDirection      = DIR_DOWN;
-        isMoving             = false;
-        animFrame            = 0;
-        animTick             = 0;
-        score                = 0;
-        dissatisfaction      = MAX_DISSATISFACTION;
-        activeOrderCount     = 1;
-        isRiding             = false;
-        elevatorFrameCounter = 0;
-        selectedButton       = 0;
-        gameState            = "PLAYING";
+        // Mission 1: single reset call
+        waiter.reset(12, 9);
+        score            = 0;
+        dissatisfaction  = MAX_DISSATISFACTION;
+        activeOrderCount = 1;
+        selectedButton   = 0;
+        gameState        = "PLAYING";
         generateOrders();
     }
 
@@ -508,9 +370,7 @@ public class GamePanel extends JPanel {
             Scanner sc = new Scanner(new File("hiscore.txt"));
             if (sc.hasNextInt()) highScore = sc.nextInt();
             sc.close();
-        } catch (Exception ex) {
-            highScore = 0;  // file not found yet — first run
-        }
+        } catch (Exception ex) { highScore = 0; }
     }
 
     private void saveHighScore() {
@@ -526,41 +386,32 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // ── Sprite loading ────────────────────────────────────────────────────────
+    // ── loadSprites ───────────────────────────────────────────────────────────
+    // Mission 1: waiter.png block removed — Waiter loads its own sprite
     private void loadSprites() {
         try {
-            spriteSheet = makeTransparent(ImageIO.read(new File("assets/waiter.png")));
-        } catch (Exception ex) {
-            System.out.println("Player sprite not found — rectangle fallback active. " + ex.getMessage());
-        }
-        try {
             kitchenSheet = ImageIO.read(new File("assets/kitchen.png"));
-        } catch (Exception ex) {
-            System.out.println("Kitchen sprite not found: " + ex.getMessage());
-        }
-        try { wallSprite     = ImageIO.read(new File("assets/wood_walls.png"));  } catch (Exception ex) { System.out.println("wall sprite missing");     }
-        try { floorSprite    = ImageIO.read(new File("assets/marble_floors.png")); } catch (Exception ex) { System.out.println("floor sprite missing");    }
-        try { elevatorSprite  = ImageIO.read(new File("assets/elevator.png"));   } catch (Exception ex) { System.out.println("elevator sprite missing");  }
-        try { escalatorSprite = ImageIO.read(new File("assets/escalator.png"));  } catch (Exception ex) { System.out.println("escalator sprite missing"); }
+        } catch (Exception ex) { System.out.println("Kitchen sprite not found: " + ex.getMessage()); }
+        try { wallSprite      = ImageIO.read(new File("assets/wood_walls.png"));   } catch (Exception ex) { System.out.println("wall sprite missing");     }
+        try { floorSprite     = ImageIO.read(new File("assets/marble_floors.png")); } catch (Exception ex) { System.out.println("floor sprite missing");    }
+        try { elevatorSprite  = ImageIO.read(new File("assets/elevator.png"));     } catch (Exception ex) { System.out.println("elevator sprite missing");  }
+        try { escalatorSprite = ImageIO.read(new File("assets/escalator.png"));    } catch (Exception ex) { System.out.println("escalator sprite missing"); }
         loadDoorSprites();
     }
 
-    // Loads every door sheet and slices each cell into doorSprites by room label
     private void loadDoorSprites() {
-        // sheet path,  room labels in order,        srcX  srcY  cellW cellH
         loadDoorSheet("assets/room_201-204.png",
-            new String[]{"201","202","203","204"},    266,  395,  250,  237);
+            new String[]{"201","202","203","204"},    266, 395, 250, 237);
         loadDoorSheet("assets/room_205-208.png",
-            new String[]{"205","206","207","208"},    198,  326,  284,  305);
+            new String[]{"205","206","207","208"},    198, 326, 284, 305);
         loadDoorSheet("assets/room_301-306.png",
             new String[]{"301","302","303","304","305","306"}, 79, 411, 230, 211);
         loadDoorSheet("assets/room_307.png",
-            new String[]{"307"},                      56,   36,  280,  303);
+            new String[]{"307"},                       56,  36, 280, 303);
         loadDoorSheet("assets/room_308-311.png",
-            new String[]{"308","309","310","311"},    267,  396,  250,  236);
+            new String[]{"308","309","310","311"},    267, 396, 250, 236);
     }
 
-    // Slices one sheet into cells and stores each in doorSprites under its label
     private void loadDoorSheet(String path, String[] labels,
                                 int srcX, int srcY, int cellW, int cellH) {
         try {
@@ -574,32 +425,14 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // Near-black threshold (< 20 per channel) — handles 011.png background (2,4,3)
-    private BufferedImage makeTransparent(BufferedImage src) {
-        BufferedImage dst = new BufferedImage(
-            src.getWidth(), src.getHeight(), BufferedImage.TYPE_INT_ARGB);
-        for (int y = 0; y < src.getHeight(); y++) {
-            for (int x = 0; x < src.getWidth(); x++) {
-                int px = src.getRGB(x, y);
-                int r  = (px >> 16) & 0xFF;
-                int g  = (px >>  8) & 0xFF;
-                int b  =  px        & 0xFF;
-                dst.setRGB(x, y, (r < 20 && g < 20 && b < 20) ? 0x00000000 : px);
-            }
-        }
-        return dst;
-    }
-
     // ── paintComponent ────────────────────────────────────────────────────────
     @Override
     public void paintComponent(Graphics g) {
         super.paintComponent(g);
 
-        // BACKGROUND
         g.setColor(Color.BLACK);
         g.fillRect(0, 0, WIDTH, HEIGHT);
 
-        // Route to correct screen
         if (gameState.equals("MENU"))        { drawMenu(g);      return; }
         if (gameState.equals("HOW_TO_PLAY")) { drawHowToPlay(g); return; }
 
@@ -611,38 +444,31 @@ public class GamePanel extends JPanel {
                 int ty   = row * tileSize;
                 int tile = map[row][col];
 
-                // Tile 0: marble floor (seamless — full image scaled to tile)
                 if (tile == 0 && floorSprite != null) {
                     g2d.drawImage(floorSprite, tx, ty, tx + tileSize, ty + tileSize,
                         0, 0, floorSprite.getWidth(), floorSprite.getHeight(), null);
                     continue;
                 }
-                // Tile 1: outer wall — plain dark grey (no sprite)
-                // Tile 2: escalator (cropped from black-bordered image)
                 if (tile == 2 && escalatorSprite != null) {
                     g2d.drawImage(escalatorSprite, tx, ty, tx + tileSize, ty + tileSize,
                         576, 324, 576 + 386, 324 + 372, null);
                     continue;
                 }
-                // Tile 3: elevator (cropped from black-bordered image)
                 if (tile == 3 && elevatorSprite != null) {
                     g2d.drawImage(elevatorSprite, tx, ty, tx + tileSize, ty + tileSize,
                         544, 294, 544 + 450, 294 + 393, null);
                     continue;
                 }
-                // Tile 5: white separator — same wood wall sprite as outer walls
                 if (tile == 5 && wallSprite != null) {
                     g2d.drawImage(wallSprite, tx, ty, tx + tileSize, ty + tileSize,
                         0, 0, wallSprite.getWidth(), wallSprite.getHeight(), null);
                     continue;
                 }
-                // Tile 8: lounge — same marble floor as corridor
                 if (tile == 8 && floorSprite != null) {
                     g2d.drawImage(floorSprite, tx, ty, tx + tileSize, ty + tileSize,
                         0, 0, floorSprite.getWidth(), floorSprite.getHeight(), null);
                     continue;
                 }
-                // Tile 6: kitchen (sliced from 3x3 sheet)
                 if (tile == 6 && kitchenSheet != null) {
                     int kitRow = row - KIT_ROW;
                     int kitCol = col - KIT_COL;
@@ -654,31 +480,31 @@ public class GamePanel extends JPanel {
                     continue;
                 }
 
-                // Colour fallback for all remaining / missing sprites
                 switch (tile) {
-                    case 0: g.setColor(C_FLOOR);     break;
-                    case 1: g.setColor(C_WALL);      break;
-                    case 2: g.setColor(C_ESCALATOR); break;
-                    case 3: g.setColor(C_ELEVATOR);  break;
-                    case 4: g.setColor(C_ROOM);      break;
-                    case 5: g.setColor(C_SEPARATOR); break;
-                    case 6: g.setColor(C_KITCHEN);   break;
-                    case 7: g.setColor(C_EXIT);      break;
-                    case 8: g.setColor(C_LOUNGE);    break;
+                    case 0: g.setColor(C_FLOOR);        break;
+                    case 1: g.setColor(C_WALL);         break;
+                    case 2: g.setColor(C_ESCALATOR);    break;
+                    case 3: g.setColor(C_ELEVATOR);     break;
+                    case 4: g.setColor(C_ROOM);         break;
+                    case 5: g.setColor(C_SEPARATOR);    break;
+                    case 6: g.setColor(C_KITCHEN);      break;
+                    case 7: g.setColor(C_EXIT);         break;
+                    case 8: g.setColor(C_LOUNGE);       break;
                     default: g.setColor(Color.MAGENTA); break;
                 }
                 g.fillRect(tx, ty, tileSize, tileSize);
             }
         }
 
-        // ROOM TILES — door sprite if loaded, green/red rectangle as fallback
+        // ROOM TILES — Mission 2: iterate rooms list
         g.setFont(new Font("Arial", Font.BOLD, 10));
-        for (int i = 0; i < roomPositions.size(); i++) {
-            int rRow  = roomPositions.get(i)[0];
-            int rCol  = roomPositions.get(i)[1];
-            int tx    = rCol * tileSize;
-            int ty    = rRow * tileSize;
-            String label = roomLabels.get(i);
+        for (int i = 0; i < rooms.size(); i++) {
+            Room r       = rooms.get(i);
+            int rRow     = r.row;
+            int rCol     = r.col;
+            int tx       = rCol * tileSize;
+            int ty       = rRow * tileSize;
+            String label = r.number;
 
             boolean isTarget = false;
             for (int[] pos : orderPositions) {
@@ -688,11 +514,8 @@ public class GamePanel extends JPanel {
             BufferedImage door = doorSprites.get(label);
 
             if (door != null) {
-                // Draw the door sprite scaled to tile size
                 g2d.drawImage(door, tx, ty, tx + tileSize, ty + tileSize,
                     0, 0, door.getWidth(), door.getHeight(), null);
-
-                // Red semi-transparent overlay for active delivery targets
                 if (isTarget) {
                     g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
                     g2d.setColor(Color.RED);
@@ -700,7 +523,6 @@ public class GamePanel extends JPanel {
                     g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
                 }
             } else {
-                // Fallback — plain green or red tile with label
                 g.setColor(isTarget ? C_ROOM_RED : C_ROOM);
                 g.fillRect(tx, ty, tileSize, tileSize);
                 g.setColor(Color.BLACK);
@@ -711,32 +533,8 @@ public class GamePanel extends JPanel {
             }
         }
 
-        // // TRANSPORT LABELS
-        // g.setFont(new Font("Arial", Font.BOLD, 8));
-        // for (int row = 0; row < map.length; row++) {
-        //     for (int col = 0; col < map[row].length; col++) {
-        //         if (map[row][col] == 2) {
-        //             g.setColor(Color.WHITE);
-        //             g.drawString("ESC", col * tileSize + 4, row * tileSize + 14);
-        //             g.drawString("↑",   col * tileSize + 11, row * tileSize + 28);
-        //         } else if (map[row][col] == 3) {
-        //             g.setColor(Color.BLACK);
-        //             g.drawString("ELV", col * tileSize + 4, row * tileSize + 14);
-        //             g.drawString("↕",   col * tileSize + 11, row * tileSize + 28);
-        //         }
-        //     }
-        // }
-
-        // FLOOR 1 ZONE LABELS
-        // g.setFont(new Font("Arial", Font.BOLD, 9));
-        // g.setColor(Color.WHITE);
-        // g.drawString("KITCHEN", 1 * tileSize + 2,  12 * tileSize + 20);
-        // g.drawString("EXIT",    7 * tileSize + 6,  13 * tileSize + 24);
-        // g.setColor(Color.GRAY);
-        // g.drawString("LOUNGE", 10 * tileSize,      12 * tileSize + 20);
-
-        // PLAYER
-        drawPlayer(g);
+        // PLAYER — Mission 1: delegate to waiter
+        waiter.draw(g, tileSize);
 
         // HUD DIVIDER
         g.setColor(Color.WHITE);
@@ -745,19 +543,16 @@ public class GamePanel extends JPanel {
         // HUD
         g.setColor(Color.WHITE);
         g.setFont(new Font("Arial", Font.PLAIN, 12));
-        g.drawString("Hotel Food Service",            610, 25);
-        g.drawString("Score: "      + score,          620, 45);
-        g.drawString("Orders: " + orderPositions.size()
-                     + "/" + activeOrderCount,         620, 63);
+        g.drawString("Hotel Food Service",       610, 25);
+        g.drawString("Score: " + score,          620, 45);
+        g.drawString("Orders: " + orderPositions.size() + "/" + activeOrderCount, 620, 63);
 
-        // DISSATISFACTION BAR — 💢 per remaining bar, grayed out when lost
         g.setFont(new Font("Segoe UI Emoji", Font.PLAIN, 18));
         for (int b = 0; b < MAX_DISSATISFACTION; b++) {
             g.setColor(b < dissatisfaction ? Color.RED : Color.DARK_GRAY);
             g.drawString("💢", 615 + b * 22, 88);
         }
 
-        // Transport legend
         g.setFont(new Font("Arial", Font.PLAIN, 11));
         g.setColor(C_ESCALATOR);
         g.fillRect(618, 98, 10, 10);
@@ -766,121 +561,75 @@ public class GamePanel extends JPanel {
         g.setColor(C_ELEVATOR);
         g.fillRect(618, 115, 10, 10);
         g.setColor(Color.WHITE);
-        g.drawString(" Elevator  (↑ ↓)",    628, 125);
+        g.drawString(" Elevator  (↑ ↓)", 628, 125);
 
-        // Active orders list with per-order dissatisfaction timers
         g.setColor(Color.RED);
         g.setFont(new Font("Arial", Font.PLAIN, 12));
         g.drawString("Deliver to:", 620, 148);
         g.setFont(new Font("Arial", Font.PLAIN, 11));
         for (int i = 0; i < orderList.size(); i++) {
-            FoodOrder o       = orderList.get(i);
-            int framesLeft    = orderTimers.get(i);
-            int secsLeft      = (int) Math.ceil(framesLeft / 60.0);
-            boolean urgent    = secsLeft <= 3;
-
-            // Timer colour: red when urgent, white otherwise
+            FoodOrder o    = orderList.get(i);
+            int framesLeft = orderTimers.get(i);
+            int secsLeft   = (int) Math.ceil(framesLeft / 60.0);
+            boolean urgent = secsLeft <= 3;
             g.setColor(urgent ? Color.RED : Color.WHITE);
-            g.drawString(
-                (i + 1) + ". Room " + o.targetRoom
+            g.drawString((i + 1) + ". Room " + o.targetRoom
                 + " (F" + o.targetFloor + ")  " + secsLeft + "s",
-                620, 166 + i * 18
-            );
+                620, 166 + i * 18);
         }
 
-        // Riding status — bottom of HUD
-        if (isRiding) {
-            boolean onEsc = (currentTransportSpeed == ESCALATOR_SPEED);
+        // Riding status — Mission 1: use waiter fields
+        if (waiter.isRiding) {
+            boolean onEsc = (waiter.currentTransportSpeed == Waiter.ESCALATOR_SPEED);
             g.setColor(onEsc ? C_ESCALATOR : C_ELEVATOR);
             g.setFont(new Font("Arial", Font.PLAIN, 11));
-            g.drawString(onEsc ? "[ Escalator... ]" : "[ Elevator... ]",
-                         612, HEIGHT - 20);
+            g.drawString(onEsc ? "[ Escalator... ]" : "[ Elevator... ]", 612, HEIGHT - 20);
         }
 
         // GAME OVER OVERLAY
         if (gameState.equals("GAME_OVER")) drawGameOver(g);
     }
 
-    // ── drawPlayer ────────────────────────────────────────────────────────────
-    private void drawPlayer(Graphics g) {
-        int px = playerCol * tileSize;
-        int py = playerRow * tileSize;
-
-        if (spriteSheet == null) {
-            g.setColor(isRiding ? Color.CYAN : Color.BLUE);
-            g.fillRect(px, py, tileSize, tileSize);
-            return;
-        }
-
-        int srcX = animFrame       * FRAME_W;
-        int srcY = playerDirection * FRAME_H;
-
-        Graphics2D g2 = (Graphics2D) g;
-        g2.drawImage(spriteSheet,
-            px,            py,
-            px + tileSize, py + tileSize,
-            srcX,          srcY,
-            srcX + FRAME_W, srcY + FRAME_H,
-            null);
-    }
-
     // ── drawMenu ──────────────────────────────────────────────────────────────
     private void drawMenu(Graphics g) {
-
-        // Background
         g.setColor(new Color(15, 15, 25));
         g.fillRect(0, 0, WIDTH, HEIGHT);
-
-        // Decorative border
         g.setColor(new Color(80, 80, 120));
         g.drawRect(30, 20, WIDTH - 60, HEIGHT - 40);
         g.drawRect(34, 24, WIDTH - 68, HEIGHT - 48);
 
-        // Game title
         g.setColor(Color.WHITE);
         g.setFont(new Font("Arial", Font.BOLD, 42));
         String title = "Hotel Food Service";
         FontMetrics fmTitle = g.getFontMetrics();
         g.drawString(title, (WIDTH - fmTitle.stringWidth(title)) / 2, 160);
 
-        // Subtitle
         g.setColor(new Color(160, 160, 200));
         g.setFont(new Font("Arial", Font.ITALIC, 15));
         String sub = "Deliver fast. Stay calm. Don't burn out.";
         FontMetrics fmSub = g.getFontMetrics();
         g.drawString(sub, (WIDTH - fmSub.stringWidth(sub)) / 2, 190);
 
-        // Hi-score
         g.setColor(Color.YELLOW);
         g.setFont(new Font("Arial", Font.PLAIN, 18));
         String hi = "Hi-Score: " + highScore;
         FontMetrics fmHi = g.getFontMetrics();
         g.drawString(hi, (WIDTH - fmHi.stringWidth(hi)) / 2, 230);
 
-        // Buttons
         int bw = 220, bh = 45, bx = (WIDTH - bw) / 2;
         int[] buttonY = { 268, 328, 388 };
-
         for (int i = 0; i < MENU_BUTTONS.length; i++) {
             boolean sel = (i == selectedButton);
-
-            // Button background
             g.setColor(sel ? new Color(230, 200, 40) : new Color(45, 45, 65));
             g.fillRect(bx, buttonY[i], bw, bh);
-
-            // Button border
             g.setColor(sel ? Color.WHITE : new Color(100, 100, 140));
             g.drawRect(bx, buttonY[i], bw, bh);
-
-            // Button text
             g.setColor(sel ? Color.BLACK : Color.WHITE);
             g.setFont(new Font("Arial", Font.BOLD, 18));
             FontMetrics fm = g.getFontMetrics();
             int tx = bx + (bw - fm.stringWidth(MENU_BUTTONS[i])) / 2;
             int ty = buttonY[i] + (bh + fm.getAscent() - fm.getDescent()) / 2;
             g.drawString(MENU_BUTTONS[i], tx, ty);
-
-            // Selection arrows
             if (sel) {
                 g.setColor(Color.BLACK);
                 g.drawString("▶", bx - 22, ty);
@@ -888,7 +637,6 @@ public class GamePanel extends JPanel {
             }
         }
 
-        // Navigation hint
         g.setColor(new Color(120, 120, 150));
         g.setFont(new Font("Arial", Font.PLAIN, 12));
         String hint = "↑ ↓ to navigate   ENTER to select";
@@ -898,24 +646,19 @@ public class GamePanel extends JPanel {
 
     // ── drawHowToPlay ─────────────────────────────────────────────────────────
     private void drawHowToPlay(Graphics g) {
-
         g.setColor(new Color(15, 15, 25));
         g.fillRect(0, 0, WIDTH, HEIGHT);
         g.setColor(new Color(80, 80, 120));
         g.drawRect(30, 20, WIDTH - 60, HEIGHT - 40);
 
-        // Title
         g.setColor(Color.WHITE);
         g.setFont(new Font("Arial", Font.BOLD, 28));
         String title = "How To Play";
         FontMetrics fmT = g.getFontMetrics();
         g.drawString(title, (WIDTH - fmT.stringWidth(title)) / 2, 70);
-
-        // Divider
         g.setColor(new Color(80, 80, 120));
         g.drawLine(80, 82, WIDTH - 80, 82);
 
-        // Content
         String[][] sections = {
             { "Controls",
               "Arrow Keys       Move the waiter",
@@ -935,7 +678,6 @@ public class GamePanel extends JPanel {
 
         int y = 110;
         for (String[] section : sections) {
-            // Section heading
             g.setColor(Color.YELLOW);
             g.setFont(new Font("Arial", Font.BOLD, 15));
             g.drawString(section[0], 80, y);
@@ -943,8 +685,6 @@ public class GamePanel extends JPanel {
             g.setColor(new Color(80, 80, 120));
             g.drawLine(80, y, WIDTH - 80, y);
             y += 16;
-
-            // Section lines
             g.setColor(Color.WHITE);
             g.setFont(new Font("Arial", Font.PLAIN, 13));
             for (int i = 1; i < section.length; i++) {
@@ -954,7 +694,6 @@ public class GamePanel extends JPanel {
             y += 10;
         }
 
-        // Back hint
         g.setColor(new Color(120, 120, 150));
         g.setFont(new Font("Arial", Font.PLAIN, 12));
         String hint = "Press ENTER or ESC to go back";
